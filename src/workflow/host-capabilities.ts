@@ -43,7 +43,8 @@ export interface WorkflowHostCapability {
   readonly inputSchema?: unknown;
   /** Default 120 seconds. */
   readonly timeoutMs?: number;
-  execute(input: unknown, context: WorkflowHostCapabilityContext): Promise<unknown> | unknown;
+  /** Return a JSON value or a Promise of one. */
+  execute(input: unknown, context: WorkflowHostCapabilityContext): unknown;
 }
 
 /** No global registration: each workflow run receives its own snapshot. */
@@ -276,12 +277,13 @@ async function runHostCapabilityBounded(
     }, capability.timeoutMs ?? 120_000);
   });
   context.signal.addEventListener("abort", abort, { once: true });
-  const invocation = Promise.resolve().then(() =>
-    capability.execute(input, {
+  const invocation = Promise.resolve().then(() => {
+    if (controller.signal.aborted) throw new WorkflowAbortError();
+    return capability.execute(input, {
       ...context,
       signal: controller.signal,
-    }),
-  );
+    });
+  });
   try {
     if (context.signal.aborted) abort();
     return await Promise.race([invocation, cancelled, timeout]);
