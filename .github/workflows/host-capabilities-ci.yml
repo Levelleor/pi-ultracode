@@ -17,7 +17,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-          cache: npm
+      # package.json requires an exact npm 11.19.0; setup-node's bundled 11.19.1 fails devEngines.
+      - name: Install pinned npm
+        run: cd "$RUNNER_TEMP" && npm install -g npm@11.19.0
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: npm test
