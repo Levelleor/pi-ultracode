@@ -21,6 +21,8 @@ export interface WorkflowMeta {
   description: string;
   whenToUse?: string;
   phases?: WorkflowMetaPhase[];
+  /** Host capability requests; permissions are granted outside the workflow. */
+  hostCapabilities?: string[];
   [key: string]: unknown;
 }
 
@@ -39,6 +41,7 @@ const WORKFLOW_INTERNAL_CALLS = {
   parallel: "__ultracodeParallel",
   pipeline: "__ultracodePipeline",
   workflow: "__ultracodeWorkflow",
+  hostCall: "__ultracodeHostCall",
 } as const;
 const WORKFLOW_RESERVED_IDENTIFIERS = new Set([
   WORKFLOW_CHECKPOINT_IDENTIFIER,
@@ -608,7 +611,7 @@ function isDynamicFunctionConstructor(node: AnyNode): boolean {
   );
 }
 
-const ORCHESTRATION_FUNCTIONS = new Set(["agent", "parallel", "pipeline", "workflow"]);
+const ORCHESTRATION_FUNCTIONS = new Set(["agent", "parallel", "pipeline", "workflow", "hostCall"]);
 
 function collectOrchestrationBindings(root: AnyNode): Set<string> {
   const dependencies = new Map<string, Set<string>>();
@@ -1414,6 +1417,15 @@ function validateMeta(meta: unknown): asserts meta is WorkflowMeta {
   }
   if (value.whenToUse !== undefined && typeof value.whenToUse !== "string") {
     throw new Error("meta.whenToUse must be a string");
+  }
+  if (value.hostCapabilities !== undefined) {
+    if (!Array.isArray(value.hostCapabilities) ||
+        value.hostCapabilities.some((name) =>
+          typeof name !== "string" || !/^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+$/.test(name) ||
+          name.length > 128) ||
+        new Set(value.hostCapabilities).size !== value.hostCapabilities.length) {
+      throw new Error("meta.hostCapabilities must list unique namespaced capability names");
+    }
   }
   if (value.phases !== undefined) {
     if (!Array.isArray(value.phases)) throw new Error("meta.phases must be an array");

@@ -13,6 +13,8 @@ import {
 
 export interface ScriptExecutorHost {
   agent(payload: any): Promise<unknown>;
+  /** Optional host capability dispatcher. Unconfigured workflows remain unchanged. */
+  hostCall?(payload: any): Promise<unknown>;
   /** Sealed ready calls; promises settle independently, without a result barrier. */
   agentBatch?(payloads: any[]): Promise<unknown>[];
   /** Cancel child work after a fatal script policy without terminating branch finally blocks. */
@@ -402,6 +404,9 @@ function handleRpc(
         switch (op) {
           case "agent":
             return host.agent(payload);
+          case "hostCall":
+            if (!host.hostCall) throw new WorkflowPolicyError("hostCall is not configured");
+            return host.hostCall(payload);
           case "reservePanel":
             return host.reservePanel(payload);
           case "completePanelBranch":
