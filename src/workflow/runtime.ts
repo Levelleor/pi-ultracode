@@ -19,7 +19,9 @@ import type { SelectorBackend } from "../selector-backend.ts";
 import { parseWorkflowScript, type WorkflowMeta } from "./parser.ts";
 import { executeWorkflowScript, type ScriptExecutorHost } from "./script-executor.ts";
 import {
-  WorkflowHostCapabilityRegistry, invokeHostCapability, isHostCapabilityName,
+  WorkflowHostCapabilityRegistry,
+  invokeHostCapability,
+  isHostCapabilityName,
   type WorkflowHostCapability,
 } from "./host-capabilities.ts";
 import {
@@ -1599,15 +1601,20 @@ function initializeWorkflowRuntime(
   }
   const host: ScriptExecutorHost = {
     agent: (payload) => agentBatch([payload])[0],
-    hostCall: (payload) => runBoundary(fromPromise(() => invokeHostCapability(payload, {
-      capabilities,
-      grants,
-      cwd,
-      targetIdentity: options.targetIdentity ?? "",
-      projectTrusted: options.projectTrusted ?? false,
-      signal: scriptController.signal,
-      journal: options.journal,
-    }))),
+    hostCall: (payload) =>
+      runBoundary(
+        fromPromise(() =>
+          invokeHostCapability(payload, {
+            capabilities,
+            grants,
+            cwd,
+            targetIdentity: options.targetIdentity ?? "",
+            projectTrusted: options.projectTrusted ?? false,
+            signal: scriptController.signal,
+            journal: options.journal,
+          }),
+        ),
+      ),
     agentBatch,
     abortChildren,
     reservePanel: (payload) => runBoundary(reservePanel(payload)),

@@ -4,8 +4,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
-  WorkflowHostCapabilityRegistry, collectHostCapabilities,
-  readUserHostCapabilityGrants, type WorkflowHostCapability,
+  WorkflowHostCapabilityRegistry,
+  collectHostCapabilities,
+  readUserHostCapabilityGrants,
+  type WorkflowHostCapability,
 } from "../src/workflow/host-capabilities.ts";
 import { parseWorkflowScript } from "../src/workflow/parser.ts";
 import { resolveRepositoryContext } from "../src/workflow/repository-context.ts";
@@ -24,10 +26,17 @@ function capability(
   effect: WorkflowHostCapability["effect"] = "read",
 ): WorkflowHostCapability {
   return {
-    name, version: "1", effect,
-    inputSchema: { type: "object", required: ["value"], properties: {
-      value: { type: "number" },
-    }, additionalProperties: false },
+    name,
+    version: "1",
+    effect,
+    inputSchema: {
+      type: "object",
+      required: ["value"],
+      properties: {
+        value: { type: "number" },
+      },
+      additionalProperties: false,
+    },
     execute,
   };
 }
@@ -43,7 +52,8 @@ async function withProject<T>(run: (cwd: string) => Promise<T>): Promise<T> {
 
 function options(cwd: string, handler: WorkflowHostCapability, grant = true) {
   return {
-    cwd, projectTrusted: true,
+    cwd,
+    projectTrusted: true,
     hostCapabilities: [handler],
     hostCapabilityGrants: grant ? [name] : [],
   };
@@ -53,11 +63,10 @@ test("hostCall is instrumented like other awaitable orchestration calls", () => 
   const parsed = parseWorkflowScript(script);
   assert.match(parsed.body, /__ultracodeHostCall\("hostCall:[a-z0-9]+","tests.echo"/);
   assert.deepEqual(parsed.meta.hostCapabilities, [name]);
-  for (const invalid of [
-    ["tests.echo", "tests.echo"], ["bad"], ["tests.echo", 1],
-  ]) {
+  for (const invalid of [["tests.echo", "tests.echo"], ["bad"], ["tests.echo", 1]]) {
     assert.throws(
-      () => parseWorkflowScript(`export const meta = {
+      () =>
+        parseWorkflowScript(`export const meta = {
         name: "invalid", description: "x", hostCapabilities: ${JSON.stringify(invalid)}
       }; return 1;`),
       /meta.hostCapabilities/,
@@ -93,7 +102,11 @@ test("Pi event-based discovery captures synchronous contributors and rejects dup
       const register = (collector as { register: (c: WorkflowHostCapability) => void }).register;
       register(capability(() => 1));
       // Pi's event bus swallows errors. The collector must still fail closed.
-      try { register(capability(() => 2)); } catch { /* intentional */ }
+      try {
+        register(capability(() => 2));
+      } catch {
+        /* intentional */
+      }
     },
   };
   assert.throws(() => collectHostCapabilities(collision), /duplicate/);
@@ -113,10 +126,16 @@ test("grants come only from a user-owned file; missing config denies all", async
 test("authorised hostCall returns bounded JSON without an agent", async () => {
   await withProject(async (cwd) => {
     let calls = 0;
-    const result = await runWorkflow(script, options(cwd, capability((input) => {
-      calls++;
-      return { value: (input as { value: number }).value, exitCode: 0 };
-    })));
+    const result = await runWorkflow(
+      script,
+      options(
+        cwd,
+        capability((input) => {
+          calls++;
+          return { value: (input as { value: number }).value, exitCode: 0 };
+        }),
+      ),
+    );
     assert.equal(result.result && (result.result as { exitCode: number }).exitCode, 0);
     assert.equal(calls, 1);
     assert.equal(result.agentCount, 0);
@@ -127,12 +146,20 @@ test("declaration, project trust, user grant and provider registration are separ
   await withProject(async (cwd) => {
     const registered = capability(() => ({ exitCode: 0 }));
     await assert.rejects(runWorkflow(script, options(cwd, registered, false)), /authorised/);
-    await assert.rejects(runWorkflow(script, {
-      ...options(cwd, registered), projectTrusted: false,
-    }), /trusted project/);
-    await assert.rejects(runWorkflow(script, {
-      ...options(cwd, registered), hostCapabilities: [],
-    }), /not registered/);
+    await assert.rejects(
+      runWorkflow(script, {
+        ...options(cwd, registered),
+        projectTrusted: false,
+      }),
+      /trusted project/,
+    );
+    await assert.rejects(
+      runWorkflow(script, {
+        ...options(cwd, registered),
+        hostCapabilities: [],
+      }),
+      /not registered/,
+    );
     const undeclared = script.replace('hostCapabilities: ["tests.echo"]', "hostCapabilities: []");
     await assert.rejects(runWorkflow(undeclared, options(cwd, registered)), /not declared/);
   });
@@ -141,9 +168,36 @@ test("declaration, project trust, user grant and provider registration are separ
 test("validates request schema and rejects non-JSON results", async () => {
   await withProject(async (cwd) => {
     const invalidInput = script.replace("{ value: 42 }", '{ value: "wrong" }');
-    await assert.rejects(runWorkflow(invalidInput, options(cwd, capability(() => null))), /input.*schema/);
-    await assert.rejects(runWorkflow(script, options(cwd, capability(() => undefined))), /hostCall.*result/);
-    await assert.rejects(runWorkflow(script, options(cwd, capability(() => ({ fn: () => 1 })))), /hostCall.*result/);
+    await assert.rejects(
+      runWorkflow(
+        invalidInput,
+        options(
+          cwd,
+          capability(() => null),
+        ),
+      ),
+      /input.*schema/,
+    );
+    await assert.rejects(
+      runWorkflow(
+        script,
+        options(
+          cwd,
+          capability(() => undefined),
+        ),
+      ),
+      /hostCall.*result/,
+    );
+    await assert.rejects(
+      runWorkflow(
+        script,
+        options(
+          cwd,
+          capability(() => ({ fn: () => 1 })),
+        ),
+      ),
+      /hostCall.*result/,
+    );
   });
 });
 
@@ -163,8 +217,11 @@ test("journalled reads and completed writes replay without invoking providers ag
     for (const effect of ["read", "write"] as const) {
       const dir = path.join(cwd, effect);
       const header = {
-        type: "run" as const, runId: "host-test", name: "host_test",
-        scriptHash: hashString(script), projectTrusted: true,
+        type: "run" as const,
+        runId: "host-test",
+        name: "host_test",
+        scriptHash: hashString(script),
+        projectTrusted: true,
         targetIdentity: resolveRepositoryContext(cwd).identity,
         startedAt: 0,
       };
@@ -186,8 +243,11 @@ test("interrupted writes fail closed rather than executing twice on resume", asy
   await withProject(async (cwd) => {
     const dir = path.join(cwd, "write");
     const header = {
-      type: "run" as const, runId: "host-test", name: "host_test",
-      scriptHash: hashString(script), projectTrusted: true,
+      type: "run" as const,
+      runId: "host-test",
+      name: "host_test",
+      scriptHash: hashString(script),
+      projectTrusted: true,
       targetIdentity: resolveRepositoryContext(cwd).identity,
       startedAt: 0,
     };
@@ -197,10 +257,16 @@ test("interrupted writes fail closed rather than executing twice on resume", asy
       throw new Error("External service failed after accepting the request");
     }, "write");
     const journal = RunJournal.create(dir, header);
-    await assert.rejects(runWorkflow(script, { ...options(cwd, provider), journal }), /External service/);
+    await assert.rejects(
+      runWorkflow(script, { ...options(cwd, provider), journal }),
+      /External service/,
+    );
     journal.close();
     const resumed = RunJournal.resume(dir, "host-test", { ...header, startedAt: 1 });
-    await assert.rejects(runWorkflow(script, { ...options(cwd, provider), journal: resumed }), /interrupted/);
+    await assert.rejects(
+      runWorkflow(script, { ...options(cwd, provider), journal: resumed }),
+      /interrupted/,
+    );
     assert.equal(calls, 1);
     resumed.close();
   });
@@ -208,11 +274,23 @@ test("interrupted writes fail closed rather than executing twice on resume", asy
 
 test("write capabilities require durable journals and deny revocation on resume", async () => {
   await withProject(async (cwd) => {
-    await assert.rejects(runWorkflow(script, options(cwd, capability(() => 1, "write"))), /durable/);
+    await assert.rejects(
+      runWorkflow(
+        script,
+        options(
+          cwd,
+          capability(() => 1, "write"),
+        ),
+      ),
+      /durable/,
+    );
     const dir = path.join(cwd, "read");
     const header = {
-      type: "run" as const, runId: "host-test", name: "host_test",
-      scriptHash: hashString(script), projectTrusted: true,
+      type: "run" as const,
+      runId: "host-test",
+      name: "host_test",
+      scriptHash: hashString(script),
+      projectTrusted: true,
       targetIdentity: resolveRepositoryContext(cwd).identity,
       startedAt: 0,
     };
@@ -221,9 +299,13 @@ test("write capabilities require durable journals and deny revocation on resume"
     await runWorkflow(script, { ...options(cwd, provider), journal });
     journal.close();
     const resumed = RunJournal.resume(dir, "host-test", { ...header, startedAt: 1 });
-    await assert.rejects(runWorkflow(script, {
-      ...options(cwd, provider, false), journal: resumed,
-    }), /authorised/);
+    await assert.rejects(
+      runWorkflow(script, {
+        ...options(cwd, provider, false),
+        journal: resumed,
+      }),
+      /authorised/,
+    );
     resumed.close();
   });
 });

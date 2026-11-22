@@ -588,9 +588,11 @@ export class RunJournal {
     return credit;
   }
 
-
   /** Completed calls replay their value; interrupted writes must not replay. */
-  lookupHost(callPath: string, key: string): {
+  lookupHost(
+    callPath: string,
+    key: string,
+  ): {
     started: boolean;
     effect?: "read" | "write";
     completed: boolean;
@@ -602,14 +604,23 @@ export class RunJournal {
       throw new WorkflowPolicyError(`workflow resume diverged at host call ${callPath}`);
     }
     const result = this.hostResults.get(callPath);
-    return { started: true, effect: start.effect, completed: Boolean(result), value: result?.value };
+    return {
+      started: true,
+      effect: start.effect,
+      completed: Boolean(result),
+      value: result?.value,
+    };
   }
 
   /** Record and sync the intent before invoking a provider. */
   recordHostStart(record: Omit<JournalHostStartRecord, "type">): void {
     const prior = this.hostStarts.get(record.callPath);
     if (prior) {
-      if (prior.key !== record.key || prior.name !== record.name || prior.effect !== record.effect) {
+      if (
+        prior.key !== record.key ||
+        prior.name !== record.name ||
+        prior.effect !== record.effect
+      ) {
         throw new WorkflowPolicyError(`workflow host call identity changed: ${record.callPath}`);
       }
       return;
@@ -1163,9 +1174,12 @@ function validateRunRecord(record: JournalRunMeta): void {
 }
 
 function validateHostStartRecord(record: JournalHostStartRecord): void {
-  if (!isNonEmptyString(record.callPath) || !isNonEmptyString(record.key) ||
-      !isNonEmptyString(record.name) ||
-      (record.effect !== "read" && record.effect !== "write")) {
+  if (
+    !isNonEmptyString(record.callPath) ||
+    !isNonEmptyString(record.key) ||
+    !isNonEmptyString(record.name) ||
+    (record.effect !== "read" && record.effect !== "write")
+  ) {
     invalidJournalRecord("host-start");
   }
 }

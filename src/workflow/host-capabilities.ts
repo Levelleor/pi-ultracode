@@ -13,7 +13,9 @@ import { WorkflowAbortError, WorkflowPolicyError } from "./admission.ts";
 import { type RunJournal, hashString, stableStringify } from "./journal.ts";
 import { jsonSchemaToTypeBox } from "./json-schema.ts";
 import {
-  assertJsonByteLimit, assertWorkflowSchemaLimit, MAX_WORKFLOW_ARGS_BYTES,
+  assertJsonByteLimit,
+  assertWorkflowSchemaLimit,
+  MAX_WORKFLOW_ARGS_BYTES,
   MAX_STRUCTURED_OUTPUT_BYTES,
 } from "./value-limits.ts";
 
@@ -76,7 +78,9 @@ export function validateHostCapability(value: WorkflowHostCapability): void {
   }
   if (
     value.timeoutMs !== undefined &&
-    (!Number.isSafeInteger(value.timeoutMs) || value.timeoutMs < 1 || value.timeoutMs > MAX_TIMEOUT_MS)
+    (!Number.isSafeInteger(value.timeoutMs) ||
+      value.timeoutMs < 1 ||
+      value.timeoutMs > MAX_TIMEOUT_MS)
   ) {
     throw new WorkflowPolicyError(`host capability '${value.name}' has invalid timeoutMs`);
   }
@@ -87,10 +91,15 @@ export function isHostCapabilityName(name: unknown): name is string {
   return typeof name === "string" && name.length <= 128 && NAME.test(name);
 }
 
-export function assertHostCapabilityInput(capability: WorkflowHostCapability, input: unknown): void {
+export function assertHostCapabilityInput(
+  capability: WorkflowHostCapability,
+  input: unknown,
+): void {
   assertJsonByteLimit(input, `hostCall '${capability.name}' input`, MAX_WORKFLOW_ARGS_BYTES);
-  if (capability.inputSchema !== undefined &&
-      !Value.Check(jsonSchemaToTypeBox(capability.inputSchema), input)) {
+  if (
+    capability.inputSchema !== undefined &&
+    !Value.Check(jsonSchemaToTypeBox(capability.inputSchema), input)
+  ) {
     throw new WorkflowPolicyError(`hostCall '${capability.name}' input does not match its schema`);
   }
 }
@@ -122,9 +131,9 @@ export interface HostCapabilityCollector {
  * Late registrations are rejected and duplicate/invalid registrations fail
  * the collection, despite Pi's event bus swallowing listener exceptions.
  */
-export function collectHostCapabilities(
-  events: { emit(channel: string, payload: unknown): void },
-): readonly WorkflowHostCapability[] {
+export function collectHostCapabilities(events: {
+  emit(channel: string, payload: unknown): void;
+}): readonly WorkflowHostCapability[] {
   const registry = new WorkflowHostCapabilityRegistry();
   const failures: unknown[] = [];
   let collecting = true;
@@ -155,9 +164,14 @@ export function readUserHostCapabilityGrants(
     throw new WorkflowPolicyError("host capability grants must be an object");
   }
   const allow = (contents as { allow?: unknown }).allow;
-  if (!Array.isArray(allow) || allow.some((name) => !isHostCapabilityName(name)) ||
-      new Set(allow).size !== allow.length) {
-    throw new WorkflowPolicyError("host capability grants must contain an allow array of unique names");
+  if (
+    !Array.isArray(allow) ||
+    allow.some((name) => !isHostCapabilityName(name)) ||
+    new Set(allow).size !== allow.length
+  ) {
+    throw new WorkflowPolicyError(
+      "host capability grants must contain an allow array of unique names",
+    );
   }
   return Object.freeze([...allow]) as readonly string[];
 }
@@ -190,8 +204,12 @@ export async function invokeHostCapability(
   environment: HostCapabilityExecution,
 ): Promise<unknown> {
   const { name, input, callPath, declared } = request;
-  if (!isHostCapabilityName(name) || typeof callPath !== "string" ||
-      !callPath.startsWith("$/") || callPath.length > 2048) {
+  if (
+    !isHostCapabilityName(name) ||
+    typeof callPath !== "string" ||
+    !callPath.startsWith("$/") ||
+    callPath.length > 2048
+  ) {
     throw new WorkflowPolicyError("invalid hostCall request");
   }
   assertHostCapabilityAllowed(name, declared, environment.projectTrusted, environment.grants);
@@ -203,10 +221,16 @@ export async function invokeHostCapability(
   }
   if (environment.signal.aborted) throw new WorkflowAbortError();
 
-  const key = hashString(stableStringify({
-    callPath, name, input, version: capability.version,
-    effect: capability.effect, target: environment.targetIdentity,
-  }));
+  const key = hashString(
+    stableStringify({
+      callPath,
+      name,
+      input,
+      version: capability.version,
+      effect: capability.effect,
+      target: environment.targetIdentity,
+    }),
+  );
   const previous = environment.journal?.lookupHost(callPath, key);
   if (previous?.completed) return previous.value;
   if (previous?.started && capability.effect === "write") {
@@ -215,7 +239,10 @@ export async function invokeHostCapability(
     );
   }
   environment.journal?.recordHostStart({
-    callPath, key, name, effect: capability.effect,
+    callPath,
+    key,
+    name,
+    effect: capability.effect,
   });
   const value = await runHostCapabilityBounded(capability, input, {
     cwd: environment.cwd,
@@ -249,9 +276,12 @@ async function runHostCapabilityBounded(
     }, capability.timeoutMs ?? 120_000);
   });
   context.signal.addEventListener("abort", abort, { once: true });
-  const invocation = Promise.resolve().then(() => capability.execute(input, {
-    ...context, signal: controller.signal,
-  }));
+  const invocation = Promise.resolve().then(() =>
+    capability.execute(input, {
+      ...context,
+      signal: controller.signal,
+    }),
+  );
   try {
     if (context.signal.aborted) abort();
     return await Promise.race([invocation, cancelled, timeout]);

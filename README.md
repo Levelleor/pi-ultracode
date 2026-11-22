@@ -249,8 +249,6 @@ The same API is available to standalone SDK hosts via `runWorkflow({ ... })` opt
 (`hostCapabilities` and `hostCapabilityGrants`). See
 [`docs/workflow-host-capabilities.md`](docs/workflow-host-capabilities.md) for the contract.
 
-
-
 ## Roles, models, and worktrees
 
 Custom agent roles live in:

@@ -68,12 +68,14 @@ also prevents resuming a previously authorised call.
 import { runWorkflow } from "pi-ultracode";
 import type { WorkflowHostCapability } from "pi-ultracode/host";
 
-const hostCapabilities: WorkflowHostCapability[] = [{
-  name: "tests.run",
-  version: "1",
-  effect: "read",
-  execute: async (input, { cwd, signal }) => ({ exitCode: 0 }),
-}];
+const hostCapabilities: WorkflowHostCapability[] = [
+  {
+    name: "tests.run",
+    version: "1",
+    effect: "read",
+    execute: async (input, { cwd, signal }) => ({ exitCode: 0 }),
+  },
+];
 
 await runWorkflow(source, {
   cwd: projectDirectory,
@@ -90,7 +92,7 @@ workflow run and does not modify process-global state.
 
 The workflow parser instruments `hostCall` with a stable call path, as it does
 for `agent`. A journal record binds the call path to its provider name, version,
-effect, arguments and target identity. The host writes an intent *before*
+effect, arguments and target identity. The host writes an intent _before_
 invoking the provider, then persists its bounded JSON result.
 
 - Completed calls return the previously recorded value when resumed, without

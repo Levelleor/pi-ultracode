@@ -6,7 +6,10 @@
  */
 
 import { Effect } from "effect";
-import { collectHostCapabilities, readUserHostCapabilityGrants } from "../src/workflow/host-capabilities.ts";
+import {
+  collectHostCapabilities,
+  readUserHostCapabilityGrants,
+} from "../src/workflow/host-capabilities.ts";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createWorkflowTool, type WorkflowToolDeps } from "../src/workflow/tool.ts";
 import { UltracodeMode, type ThinkingPreferenceStore } from "../src/mode.ts";
@@ -41,9 +44,9 @@ export default function extension(pi: ExtensionAPI, extraDeps: UltracodeExtensio
     ...workflowDeps,
     registry,
     collectHostCapabilities:
-      workflowDeps.collectHostCapabilities ?? (() => pi.events ? collectHostCapabilities(pi.events) : []),
-    getHostCapabilityGrants:
-      workflowDeps.getHostCapabilityGrants ?? readUserHostCapabilityGrants,
+      workflowDeps.collectHostCapabilities ??
+      (() => (pi.events ? collectHostCapabilities(pi.events) : [])),
+    getHostCapabilityGrants: workflowDeps.getHostCapabilityGrants ?? readUserHostCapabilityGrants,
     getSelectorBackend: workflowDeps.getSelectorBackend ?? (() => preferences.getSelectorBackend()),
     isExecutionAllowed: () => mode.isEnforcing(),
   });

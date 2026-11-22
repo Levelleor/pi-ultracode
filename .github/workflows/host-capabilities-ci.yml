@@ -25,14 +25,3 @@ jobs:
       - run: npm test
       - run: npm run check
 
-      # On style failure, print formatted file contents as bounded base64 chunks
-      # so maintainers can apply the exact project formatter output.
-      - name: Capture formatter output
-        if: failure()
-        run: |
-          ./node_modules/.bin/vp check --fix
-          git diff --name-only -z | while IFS= read -r -d '' file; do
-            printf 'FORMAT_FILE_BEGIN:%s\n' "$file"
-            base64 -w0 "$file" | fold -w 2048
-            printf 'FORMAT_FILE_END:%s\n' "$file"
-          done
