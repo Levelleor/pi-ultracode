@@ -9,7 +9,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Value } from "typebox/value";
-import { WorkflowPolicyError } from "./admission.ts";
+import { WorkflowAbortError, WorkflowPolicyError } from "./admission.ts";
+import { type RunJournal, hashString, stableStringify } from "./journal.ts";
 import { jsonSchemaToTypeBox } from "./json-schema.ts";
 import {
   assertJsonByteLimit, assertWorkflowSchemaLimit, MAX_WORKFLOW_ARGS_BYTES,
@@ -159,4 +160,103 @@ export function readUserHostCapabilityGrants(
     throw new WorkflowPolicyError("host capability grants must contain an allow array of unique names");
   }
   return Object.freeze([...allow]) as readonly string[];
+}
+
+export interface HostCapabilityCall {
+  name: unknown;
+  input: unknown;
+  callPath: unknown;
+  /** Metadata of the currently executing root or nested workflow. */
+  declared: unknown;
+}
+
+export interface HostCapabilityExecution {
+  readonly capabilities: ReadonlyMap<string, WorkflowHostCapability>;
+  readonly grants: readonly string[];
+  readonly cwd: string;
+  readonly targetIdentity: string;
+  readonly projectTrusted: boolean;
+  readonly signal: AbortSignal;
+  readonly journal?: RunJournal;
+}
+
+/**
+ * Calls are authorised before any replay, so revocation takes effect on resume.
+ * All mutating calls require a durable journal. Interrupted writes fail closed
+ * rather than accidentally repeating an external side effect.
+ */
+export async function invokeHostCapability(
+  request: HostCapabilityCall,
+  environment: HostCapabilityExecution,
+): Promise<unknown> {
+  const { name, input, callPath, declared } = request;
+  if (!isHostCapabilityName(name) || typeof callPath !== "string" ||
+      !callPath.startsWith("$/") || callPath.length > 2048) {
+    throw new WorkflowPolicyError("invalid hostCall request");
+  }
+  assertHostCapabilityAllowed(name, declared, environment.projectTrusted, environment.grants);
+  const capability = environment.capabilities.get(name);
+  if (!capability) throw new WorkflowPolicyError(`hostCall '${name}' is not registered`);
+  assertHostCapabilityInput(capability, input);
+  if (capability.effect === "write" && !environment.journal) {
+    throw new WorkflowPolicyError(`hostCall '${name}' writes require a durable run journal`);
+  }
+  if (environment.signal.aborted) throw new WorkflowAbortError();
+
+  const key = hashString(stableStringify({
+    callPath, name, input, version: capability.version,
+    effect: capability.effect, target: environment.targetIdentity,
+  }));
+  const previous = environment.journal?.lookupHost(callPath, key);
+  if (previous?.completed) return previous.value;
+  if (previous?.started && capability.effect === "write") {
+    throw new WorkflowPolicyError(
+      `hostCall '${name}' at ${callPath} was interrupted after invocation; reconcile the external effect before starting a new run`,
+    );
+  }
+  environment.journal?.recordHostStart({
+    callPath, key, name, effect: capability.effect,
+  });
+  const value = await runHostCapabilityBounded(capability, input, {
+    cwd: environment.cwd,
+    targetIdentity: environment.targetIdentity,
+    signal: environment.signal,
+    callId: key,
+  });
+  assertHostCapabilityOutput(name, value);
+  environment.journal?.recordHostResult(callPath, key, value);
+  return value;
+}
+
+async function runHostCapabilityBounded(
+  capability: WorkflowHostCapability,
+  input: unknown,
+  context: WorkflowHostCapabilityContext,
+): Promise<unknown> {
+  const controller = new AbortController();
+  let timer: NodeJS.Timeout | undefined;
+  let abort = () => {};
+  const cancelled = new Promise<never>((_resolve, reject) => {
+    abort = () => {
+      controller.abort();
+      reject(new WorkflowAbortError());
+    };
+  });
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new WorkflowPolicyError(`hostCall '${capability.name}' timed out`));
+    }, capability.timeoutMs ?? 120_000);
+  });
+  context.signal.addEventListener("abort", abort, { once: true });
+  const invocation = Promise.resolve().then(() => capability.execute(input, {
+    ...context, signal: controller.signal,
+  }));
+  try {
+    if (context.signal.aborted) abort();
+    return await Promise.race([invocation, cancelled, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+    context.signal.removeEventListener("abort", abort);
+  }
 }

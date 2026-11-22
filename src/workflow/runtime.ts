@@ -19,6 +19,10 @@ import type { SelectorBackend } from "../selector-backend.ts";
 import { parseWorkflowScript, type WorkflowMeta } from "./parser.ts";
 import { executeWorkflowScript, type ScriptExecutorHost } from "./script-executor.ts";
 import {
+  WorkflowHostCapabilityRegistry, invokeHostCapability, isHostCapabilityName,
+  type WorkflowHostCapability,
+} from "./host-capabilities.ts";
+import {
   AgentAdmission,
   ABSOLUTE_MAX_AGENTS,
   DEFAULT_MAX_AGENTS,
@@ -98,6 +102,10 @@ export interface WorkflowRunOptions {
   args?: unknown;
   /** Parent session's immutable project-trust decision. Defaults to false. */
   projectTrusted?: boolean;
+  /** Explicit capability providers, supplied by an SDK host or Pi extension. */
+  hostCapabilities?: readonly WorkflowHostCapability[];
+  /** Names authorised by the host outside the workflow source. Defaults to none. */
+  hostCapabilityGrants?: readonly string[];
   /** Canonical repository and relative-cwd identity. Computed when omitted. */
   targetIdentity?: string;
   signal?: AbortSignal;
@@ -427,6 +435,16 @@ function initializeWorkflowRuntime(
   }: Effect.Success<ReturnType<typeof prepareRuntime>>,
   execution: ExecutionGate,
 ) {
+  // All capability registrations are validated and snapshotted for this run.
+  const capabilityRegistry = new WorkflowHostCapabilityRegistry();
+  for (const capability of options.hostCapabilities ?? []) capabilityRegistry.register(capability);
+  const capabilities = new Map(
+    capabilityRegistry.snapshot().map((capability) => [capability.name, capability]),
+  );
+  const grants = [...(options.hostCapabilityGrants ?? [])];
+  if (grants.some((name) => !isHostCapabilityName(name))) {
+    throw new WorkflowPolicyError("host capability grants must contain namespaced names");
+  }
   const state: RuntimeState = {
     logs: [],
     phases: [],
@@ -1581,6 +1599,15 @@ function initializeWorkflowRuntime(
   }
   const host: ScriptExecutorHost = {
     agent: (payload) => agentBatch([payload])[0],
+    hostCall: (payload) => runBoundary(fromPromise(() => invokeHostCapability(payload, {
+      capabilities,
+      grants,
+      cwd,
+      targetIdentity: options.targetIdentity ?? "",
+      projectTrusted: options.projectTrusted ?? false,
+      signal: scriptController.signal,
+      journal: options.journal,
+    }))),
     agentBatch,
     abortChildren,
     reservePanel: (payload) => runBoundary(reservePanel(payload)),
