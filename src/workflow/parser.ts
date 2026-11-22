@@ -1421,7 +1421,7 @@ function validateMeta(meta: unknown): asserts meta is WorkflowMeta {
   if (value.hostCapabilities !== undefined) {
     if (!Array.isArray(value.hostCapabilities) ||
         value.hostCapabilities.some((name) =>
-          typeof name !== "string" || !/^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)+$/.test(name) ||
+          typeof name !== "string" || !/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/.test(name) ||
           name.length > 128) ||
         new Set(value.hostCapabilities).size !== value.hostCapabilities.length) {
       throw new Error("meta.hostCapabilities must list unique namespaced capability names");

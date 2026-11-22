@@ -41,7 +41,7 @@ export default function extension(pi: ExtensionAPI, extraDeps: UltracodeExtensio
     ...workflowDeps,
     registry,
     collectHostCapabilities:
-      workflowDeps.collectHostCapabilities ?? (() => collectHostCapabilities(pi.events)),
+      workflowDeps.collectHostCapabilities ?? (() => pi.events ? collectHostCapabilities(pi.events) : []),
     getHostCapabilityGrants:
       workflowDeps.getHostCapabilityGrants ?? readUserHostCapabilityGrants,
     getSelectorBackend: workflowDeps.getSelectorBackend ?? (() => preferences.getSelectorBackend()),
