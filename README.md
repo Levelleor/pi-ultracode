@@ -177,6 +177,80 @@ For editor IntelliSense, add:
 
 The complete workflow contract is documented in [`types/workflow.d.ts`](types/workflow.d.ts). A larger example is available in [`examples/workflows`](examples/workflows).
 
+### Host capabilities (opt-in)
+
+A workflow can call registered, narrowly scoped host operations without receiving Node.js APIs
+or using an agent to perform deterministic work. The provider is a separate Pi extension or
+SDK host. No capability is available by default.
+
+Workflow:
+
+```js
+export const meta = {
+  name: "verify_change",
+  description: "Verify a change deterministically",
+  hostCapabilities: ["tests.run"],
+};
+const check = await hostCall("tests.run", { suite: "unit" });
+if (check.exitCode !== 0) {
+  await agent(`Fix the failing tests: ${JSON.stringify(check)}`);
+}
+```
+
+An installed Pi extension can register a host function using the synchronous
+`ultracode:host-capabilities:collect` event:
+
+```ts
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+export default function (pi: ExtensionAPI) {
+  pi.events.on("ultracode:host-capabilities:collect", ({ register }: any) => {
+    register({
+      name: "tests.run",
+      version: "1",
+      effect: "read",
+      inputSchema: {
+        type: "object",
+        properties: { suite: { type: "string" } },
+        required: ["suite"],
+        additionalProperties: false,
+      },
+      async execute({ suite }: { suite: string }, { cwd, signal }: any) {
+        // Implement a bounded subprocess call here (e.g. execFile).
+        // Return a JSON object with exitCode and output.
+        return runTests(suite, { cwd, signal });
+      },
+    });
+  });
+}
+```
+
+The user must additionally grant the capability **outside the repository**, in
+`~/.pi/ultracode/host-capabilities.json`:
+
+```json
+{ "allow": ["tests.run"] }
+```
+
+The invoking project must also be trusted. Merely installing an extension or listing a
+capability in workflow metadata is not sufficient. Registrations are collected synchronously
+and snapshotted per run; duplicates and invalid schemas are rejected. Requests and results
+must be bounded JSON. Each call has a timeout (default 120 seconds) and receives an
+`AbortSignal`.
+
+Providers declare `effect: "read"` or `"write"`. Successful calls are journalled and
+replayed on resume; write operations require a durable journal, with intent synced before
+execution. An interrupted write is **not retried automatically**, because the external effect
+may already have happened. Resolve its state before starting a new run. Providers are
+trusted Node.js code, so the extension itself remains responsible for correctly declaring
+effects and honouring cancellation.
+
+The same API is available to standalone SDK hosts via `runWorkflow({ ... })` options
+(`hostCapabilities` and `hostCapabilityGrants`). See
+[`docs/workflow-host-capabilities.md`](docs/workflow-host-capabilities.md) for the contract.
+
+
+
 ## Roles, models, and worktrees
 
 Custom agent roles live in:
