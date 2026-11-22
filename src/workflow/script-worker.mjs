@@ -260,6 +260,7 @@ function buildScriptContext(bodyArgs) {
       parallel,
       pipeline,
       workflow,
+      hostCall,
       phase,
       log: logLine,
       checkpoint,
