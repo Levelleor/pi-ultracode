@@ -185,6 +185,7 @@ function buildScriptContext(bodyArgs) {
         __ultracodeParallel: { value: (callSite, ...values) => orchestration("parallel", callSite, values) },
         __ultracodePipeline: { value: (callSite, ...values) => orchestration("pipeline", callSite, values) },
         __ultracodeWorkflow: { value: (callSite, ...values) => orchestration("workflow", callSite, values) },
+        __ultracodeHostCall: { value: (callSite, ...values) => orchestration("hostCall", callSite, values) },
         __ultracodeLoop: { value: (site) => sync("loop", [site]) },
         __ultracodeInvoke: { value: (callSite, fn, thisArg, ...values) => invoke(callSite, fn, thisArg, values) },
         __ultracodeMapThunks: { value: mapThunks },
@@ -259,6 +260,7 @@ function buildScriptContext(bodyArgs) {
       parallel,
       pipeline,
       workflow,
+      hostCall,
       phase,
       log: logLine,
       checkpoint,
@@ -511,6 +513,29 @@ function copyDenseDataArray(value, label) {
     output[index] = descriptor.value;
   }
   return output;
+}
+
+function hostCall(callSite, name, input = {}) {
+  return startOrchestration(() => hostCallImpl(callSite, name, input));
+}
+
+async function hostCallImpl(callSite, name, input) {
+  throwIfAborted();
+  if (typeof name !== "string") throw new TypeError("hostCall name must be a string");
+  const execution = executionContext.getStore() ?? createExecutionScope({ scopePath: "$" });
+  const callPath = allocateCallPath(execution, "hostCall", "c", callSite);
+  let snapshot;
+  try {
+    snapshot = structuredClone(input);
+  } catch (error) {
+    throw new TypeError(`hostCall input must be structured-cloneable: ${messageOf(error)}`);
+  }
+  return await rpc("hostCall", {
+    name,
+    input: snapshot,
+    callPath,
+    declared: execution.workflowContext?.meta?.hostCapabilities,
+  });
 }
 
 function workflow(callSite, nameOrRef, nestedArgs) {

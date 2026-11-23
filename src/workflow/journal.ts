@@ -123,6 +123,19 @@ export interface JournalAgentRecord {
   durationMs?: number;
 }
 
+export interface JournalHostStartRecord {
+  type: "host-start";
+  callPath: string;
+  key: string;
+  name: string;
+  effect: "read" | "write";
+}
+export interface JournalHostResultRecord {
+  type: "host-result";
+  callPath: string;
+  key: string;
+  value: unknown;
+}
 export interface JournalResultRecord {
   type: "result";
   ok: boolean;
@@ -142,6 +155,8 @@ export type JournalRecord =
   | JournalNestedSourceRecord
   | JournalDeliveryStartRecord
   | JournalAgentRecord
+  | JournalHostStartRecord
+  | JournalHostResultRecord
   | JournalResultRecord;
 
 /** Cryptographic identity hash for scripts, args, and agent requests. */
@@ -170,6 +185,8 @@ interface LoadedJournal {
   panelBranches: Map<string, Map<number, JournalPanelBranchRecord>>;
   nestedSources: Map<string, string>;
   pendingDeliveries: Map<string, JournalDeliveryStartRecord>;
+  hostStarts: Map<string, JournalHostStartRecord>;
+  hostResults: Map<string, JournalHostResultRecord>;
 }
 
 export class RunJournal {
@@ -188,6 +205,8 @@ export class RunJournal {
   private readonly openPanelAdmissions = new Map<string, Set<string>>();
   private readonly nestedSources: Map<string, string>;
   private readonly pendingDeliveries: Map<string, JournalDeliveryStartRecord>;
+  private readonly hostStarts: Map<string, JournalHostStartRecord>;
+  private readonly hostResults: Map<string, JournalHostResultRecord>;
   private _agentsUsed: number;
   private bytes: number;
   private fdClosed = false;
@@ -212,6 +231,8 @@ export class RunJournal {
     this.panelBranches = loaded.panelBranches;
     this.nestedSources = loaded.nestedSources;
     this.pendingDeliveries = loaded.pendingDeliveries;
+    this.hostStarts = loaded.hostStarts;
+    this.hostResults = loaded.hostResults;
   }
 
   get agentsUsed(): number {
@@ -253,6 +274,8 @@ export class RunJournal {
       panelBranches: new Map(),
       nestedSources: new Map(),
       pendingDeliveries: new Map(),
+      hostStarts: new Map(),
+      hostResults: new Map(),
     });
     try {
       journal.append(header);
@@ -565,6 +588,62 @@ export class RunJournal {
     return credit;
   }
 
+  /** Completed calls replay their value; interrupted writes must not replay. */
+  lookupHost(
+    callPath: string,
+    key: string,
+  ): {
+    started: boolean;
+    effect?: "read" | "write";
+    completed: boolean;
+    value?: unknown;
+  } {
+    const start = this.hostStarts.get(callPath);
+    if (!start) return { started: false, completed: false };
+    if (start.key !== key) {
+      throw new WorkflowPolicyError(`workflow resume diverged at host call ${callPath}`);
+    }
+    const result = this.hostResults.get(callPath);
+    return {
+      started: true,
+      effect: start.effect,
+      completed: Boolean(result),
+      value: result?.value,
+    };
+  }
+
+  /** Record and sync the intent before invoking a provider. */
+  recordHostStart(record: Omit<JournalHostStartRecord, "type">): void {
+    const prior = this.hostStarts.get(record.callPath);
+    if (prior) {
+      if (
+        prior.key !== record.key ||
+        prior.name !== record.name ||
+        prior.effect !== record.effect
+      ) {
+        throw new WorkflowPolicyError(`workflow host call identity changed: ${record.callPath}`);
+      }
+      return;
+    }
+    const full: JournalHostStartRecord = { type: "host-start", ...record };
+    validateHostStartRecord(full);
+    this.append(full);
+    fs.fsyncSync(this.fd);
+    this.hostStarts.set(full.callPath, full);
+  }
+
+  recordHostResult(callPath: string, key: string, value: unknown): void {
+    const start = this.hostStarts.get(callPath);
+    if (!start || start.key !== key || this.hostResults.has(callPath)) {
+      throw new WorkflowPolicyError(`invalid host call completion: ${callPath}`);
+    }
+    assertWorkflowOutputLimit(value, "workflow host result");
+    const full: JournalHostResultRecord = { type: "host-result", callPath, key, value };
+    this.append(full);
+    fs.fsyncSync(this.fd);
+    this.hostResults.set(callPath, full);
+  }
+
   recordDeliveryStart(callPath: string, patchPath: string, patchHash: string): void {
     if (this.pendingDeliveries.has(callPath) || this.priorAgents.has(callPath)) {
       throw new WorkflowPolicyError(`workflow delivery already started at ${callPath}`);
@@ -740,6 +819,8 @@ function loadJournal(filePath: string): LoadedJournal {
   const panelBranches = new Map<string, Map<number, JournalPanelBranchRecord>>();
   const nestedSources = new Map<string, string>();
   const pendingDeliveries = new Map<string, JournalDeliveryStartRecord>();
+  const hostStarts = new Map<string, JournalHostStartRecord>();
+  const hostResults = new Map<string, JournalHostResultRecord>();
   let generationTerminated = false;
   for (const record of records.slice(1)) {
     if (generationTerminated && record.type !== "resume") {
@@ -908,6 +989,27 @@ function loadJournal(filePath: string): LoadedJournal {
         openPanelAdmissions.delete(record.callPath);
         completePanels.set(record.callPath, record);
         break;
+
+      case "host-start": {
+        validateHostStartRecord(record);
+        if (hostStarts.has(record.callPath)) {
+          throw new WorkflowPolicyError(`duplicate host call intent: ${record.callPath}`);
+        }
+        hostStarts.set(record.callPath, record);
+        break;
+      }
+      case "host-result": {
+        if (!isNonEmptyString(record.callPath) || !isNonEmptyString(record.key)) {
+          invalidJournalRecord("host result");
+        }
+        const start = hostStarts.get(record.callPath);
+        if (!start || start.key !== record.key || hostResults.has(record.callPath)) {
+          invalidJournalRecord("host result");
+        }
+        assertWorkflowOutputLimit(record.value, "workflow host result");
+        hostResults.set(record.callPath, record);
+        break;
+      }
       case "nested-source": {
         if (!isNonEmptyString(record.callPath) || !isNonEmptyString(record.sourceHash)) {
           throw new WorkflowPolicyError(
@@ -968,6 +1070,8 @@ function loadJournal(filePath: string): LoadedJournal {
     panelBranches,
     nestedSources,
     pendingDeliveries,
+    hostStarts,
+    hostResults,
   };
 }
 
@@ -1017,6 +1121,15 @@ function validateJournalRecordForWrite(record: JournalRecord): void {
       )
         invalidJournalRecord("panel");
       return;
+    case "host-start":
+      validateHostStartRecord(record);
+      return;
+    case "host-result":
+      if (!isNonEmptyString(record.callPath) || !isNonEmptyString(record.key)) {
+        invalidJournalRecord("host result");
+      }
+      assertWorkflowOutputLimit(record.value, "workflow host result");
+      return;
     case "nested-source":
       if (!isNonEmptyString(record.callPath) || !isNonEmptyString(record.sourceHash)) {
         invalidJournalRecord("nested-source");
@@ -1057,6 +1170,17 @@ function validateRunRecord(record: JournalRunMeta): void {
     assertWorkflowArgsLimit(record.args);
   } catch {
     invalidJournalRecord("run header");
+  }
+}
+
+function validateHostStartRecord(record: JournalHostStartRecord): void {
+  if (
+    !isNonEmptyString(record.callPath) ||
+    !isNonEmptyString(record.key) ||
+    !isNonEmptyString(record.name) ||
+    (record.effect !== "read" && record.effect !== "write")
+  ) {
+    invalidJournalRecord("host-start");
   }
 }
 

@@ -1,0 +1,26 @@
+name: Host capability checks
+
+on:
+  push:
+    branches: [main, feat/workflow-host-capabilities]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      # package.json requires an exact npm 11.19.0; setup-node's bundled 11.19.1 fails devEngines.
+      - name: Install pinned npm
+        run: cd "$RUNNER_TEMP" && npm install -g npm@11.19.0
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run check

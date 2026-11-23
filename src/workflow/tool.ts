@@ -15,6 +15,7 @@ import {
 import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
 import beautify from "js-beautify";
 import { Context, Effect, Result } from "effect";
+import type { WorkflowHostCapability } from "./host-capabilities.ts";
 import { Type } from "typebox";
 import {
   WORKFLOW_GUIDELINES,
@@ -100,6 +101,10 @@ const workflowToolSchema = Type.Object(
 );
 
 export interface WorkflowToolDeps {
+  /** Synchronous per-run discovery of third-party host capabilities. */
+  collectHostCapabilities?: () => readonly WorkflowHostCapability[];
+  /** User-owned authorisation: an undeclared or ungranted capability is denied. */
+  getHostCapabilityGrants?: () => readonly string[];
   /** Session-owned workflow registry shared with commands and overlays. */
   registry?: WorkflowRegistry;
   /** Canonical runtime supplied by an SDK host; shared by all child sessions. */
@@ -214,6 +219,8 @@ function prepareWorkflow(input: HostInput) {
   const resolvedScript = resolveScript(params, cwd, projectTrusted);
   const script = normalizeScript(resolvedScript.script);
   const parsed = parseWorkflowScript(script);
+  const hostCapabilities = input.deps.collectHostCapabilities?.() ?? [];
+  const hostCapabilityGrants = input.deps.getHostCapabilityGrants?.() ?? [];
   const displayName = safeDisplayText(parsed.meta.name, 60) || "workflow";
   const runsDir = workflowRunsDir(ctx);
   const requestedRunId = params.resumeFromRunId?.trim();
@@ -232,6 +239,8 @@ function prepareWorkflow(input: HostInput) {
     script,
     sourceLabel: resolvedScript.sourceLabel,
     parsed,
+    hostCapabilities,
+    hostCapabilityGrants,
     displayName,
     runsDir,
     runId,
@@ -623,6 +632,8 @@ function executeRun(run: ObservedWorkflow) {
         cwd,
         args: params.args,
         projectTrusted,
+        hostCapabilities: run.hostCapabilities,
+        hostCapabilityGrants: run.hostCapabilityGrants,
         targetIdentity,
         signal: abort.controller.signal,
         thinkingLevel,

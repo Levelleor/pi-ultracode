@@ -20,6 +20,8 @@ declare global {
     description: string;
     whenToUse?: string;
     phases?: Array<{ title: string; detail?: string; model?: string }>;
+    /** Requests named host capabilities; does not grant permission. */
+    hostCapabilities?: string[];
     /** Optional literal task background (e.g. actual goals/acceptance/dependencies), shared with Jev. */
     [key: string]: unknown;
   }
@@ -122,6 +124,13 @@ declare global {
 
   /** Run a trust-aware saved workflow by name; strict JSON args/output and one nesting level. */
   function workflow<T = unknown>(name: string, args?: unknown): Promise<T>;
+
+  /**
+   * Invoke a host-registered capability. Requires registration, explicit
+   * meta.hostCapabilities declaration, a trusted project, and user-owned grant.
+   * Calls are bounded, tracked and journaled for safe resume.
+   */
+  function hostCall<T = unknown>(name: string, input?: unknown): Promise<T>;
 
   /** Mark the current phase for progress grouping. */
   function phase(title: string): void;

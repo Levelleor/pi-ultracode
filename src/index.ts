@@ -93,3 +93,13 @@ export {
   isGitRepo,
   type Worktree,
 } from "./workflow/worktree.ts";
+
+export {
+  HOST_CAPABILITIES_COLLECT_EVENT,
+  WorkflowHostCapabilityRegistry,
+  collectHostCapabilities,
+  readUserHostCapabilityGrants,
+  type WorkflowHostCapability,
+  type WorkflowHostCapabilityContext,
+  type HostCapabilityCollector,
+} from "./workflow/host-capabilities.ts";
